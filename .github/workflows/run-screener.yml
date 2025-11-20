@@ -1,0 +1,67 @@
+name: Run FTSE250 SmartGARP screener
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_path:
+        description: 'Path to config file'
+        required: false
+        default: 'config/config.yaml'
+  schedule:
+    - cron: '0 8 * * 1-5'
+
+jobs:
+  run-screener:
+    runs-on: ubuntu-latest
+    env:
+      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+      ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          set -e
+          if [ -f requirements.txt ]; then
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+          elif [ -f pyproject.toml ]; then
+            python -m pip install --upgrade pip
+            pip install poetry
+            poetry install --no-interaction --no-ansi
+          else
+            echo "No requirements.txt or pyproject.toml found — adjust this step to install your project's dependencies"
+          fi
+
+      - name: Run screener
+        run: |
+          CONFIG_PATH="${{ github.event.inputs.config_path || 'config/config.yaml' }}"
+          echo "Using config: $CONFIG_PATH"
+          if [ -f main.py ]; then
+            python main.py --config "$CONFIG_PATH"
+          elif [ -f src/main.py ]; then
+            python src/main.py --config "$CONFIG_PATH"
+          else
+            echo "No obvious entrypoint found (main.py or src/main.py). Update the Run screener step with your project's start command."
+            exit 1
+          fi
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: screener-results
+          path: outputs/
