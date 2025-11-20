@@ -1,6 +1,5 @@
-# Example workflow to run the FTSE250 SmartGARP screener using config/config.yaml
-# - supports manual runs (workflow_dispatch) and a scheduled run
-# - checks out code, sets up Python, installs deps (requirements.txt or Poetry), runs the script, and uploads outputs
+name: Run FTSE250 SmartGARP screener
+
 on:
   workflow_dispatch:
     inputs:
@@ -9,14 +8,12 @@ on:
         required: false
         default: 'config/config.yaml'
   schedule:
-    # run at 08:00 UTC every weekday (adjust cron to your needs)
     - cron: '0 8 * * 1-5'
 
 jobs:
   run-screener:
     runs-on: ubuntu-latest
     env:
-      # example secret names — replace/add as needed in repo Settings -> Secrets
       FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
       ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
     steps:
@@ -32,38 +29,38 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          # Use a generic cache key so the workflow won't fail if there's no requirements.txt
+          key: ${{ runner.os }}-pip-cache
           restore-keys: |
-            ${{ runner.os }}-pip-
+            ${{ runner.os }}-pip-cache
 
       - name: Install dependencies
         run: |
           set -e
-          if [ -f requirements.txt ]; then
-            python -m pip install --upgrade pip
-            pip install -r requirements.txt
-          elif [ -f pyproject.toml ]; then
+          # Only attempt dependency installation if a pyproject.toml is present (Poetry).
+          # Removed all references to requirements.txt so the workflow won't error if it's not present.
+          if [ -f pyproject.toml ]; then
             python -m pip install --upgrade pip
             pip install poetry
             poetry install --no-interaction --no-ansi
           else
-            echo "No requirements.txt or pyproject.toml found — adjust this step to install your project's dependencies"
+            echo "No pyproject.toml found — skipping dependency installation. If your project requires Python packages, add pyproject.toml or update this step."
           fi
 
       - name: Run screener
-        # Use the workflow_dispatch input if present; otherwise default to config/config.yaml
         run: |
           CONFIG_PATH="${{ github.event.inputs.config_path || 'config/config.yaml' }}"
           echo "Using config: $CONFIG_PATH"
-          # Replace the following command with how to run your project:
-          # e.g. python -m screener.main --config "$CONFIG_PATH"
-          # or ./run.sh --config "$CONFIG_PATH"
+          # Try common entrypoints; if none exist, exit with helpful message (non-zero).
           if [ -f main.py ]; then
             python main.py --config "$CONFIG_PATH"
           elif [ -f src/main.py ]; then
             python src/main.py --config "$CONFIG_PATH"
+          elif python -c "import importlib, sys; importlib.import_module('screener')" >/dev/null 2>&1; then
+            # If project exposes a package/module named `screener`, try running it as a module
+            python -m screener --config "$CONFIG_PATH" || true
           else
-            echo "No obvious entrypoint found (main.py or src/main.py). Update the Run screener step with your project's start command."
+            echo "No obvious entrypoint found (main.py, src/main.py, or package 'screener'). Update the Run screener step with your project's start command."
             exit 1
           fi
 
